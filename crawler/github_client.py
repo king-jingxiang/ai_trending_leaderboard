@@ -7,16 +7,33 @@ import time
 import logging
 import random
 from datetime import datetime, timedelta
+import threading
 
 logger = logging.getLogger(__name__)
 
 class GitHubClient:
     def __init__(self):
-        self.client = Github(Config.GITHUB_TOKEN) if Config.GITHUB_TOKEN else Github()
+        tokens = Config.GITHUB_TOKENS if Config.GITHUB_TOKENS else [None]
+        self._token_states = []
+        for token in tokens:
+            client = Github(token) if token else Github()
+            self._token_states.append({
+                "token": token,
+                "client": client,
+                "cooldown_until": 0.0,
+                "last_request_at": 0.0
+            })
+        self._token_lock = threading.Lock()
+        self._token_cursor = 0
         self.max_retries = 5
         self.base_delay = 2
         self.max_delay = 900
         self.jitter_ratio = 0.3
+        self.request_delay = max(0.0, Config.GITHUB_REQUEST_DELAY)
+
+    @property
+    def max_concurrency(self):
+        return max(1, len(self._token_states))
 
     def _get_rate_limit_reset_delay(self, exception):
         headers = getattr(exception, "headers", None) or {}
@@ -40,13 +57,71 @@ class GitHubClient:
                 delay = max(delay, reset_delay)
         return delay
 
+    def _is_rate_limited(self, exception):
+        if getattr(exception, "status", None) != 403:
+            return False
+        data = getattr(exception, "data", None)
+        if isinstance(data, dict):
+            message = str(data.get("message", "")).lower()
+            if "rate limit" in message:
+                return True
+        headers = getattr(exception, "headers", None) or {}
+        remaining = headers.get("X-RateLimit-Remaining") or headers.get("x-ratelimit-remaining")
+        return remaining == "0"
+
+    def _mark_rate_limited(self, token_index, exception):
+        delay = self._get_rate_limit_reset_delay(exception)
+        if delay is None:
+            delay = max(self.base_delay, 60)
+        with self._token_lock:
+            self._token_states[token_index]["cooldown_until"] = time.monotonic() + delay
+
+    def _select_token_index(self):
+        while True:
+            now = time.monotonic()
+            with self._token_lock:
+                available = [
+                    i for i, state in enumerate(self._token_states)
+                    if state["cooldown_until"] <= now
+                ]
+                if available:
+                    start = self._token_cursor
+                    for offset in range(len(self._token_states)):
+                        idx = (start + offset) % len(self._token_states)
+                        if idx in available:
+                            self._token_cursor = (idx + 1) % len(self._token_states)
+                            return idx
+                next_ready = min(state["cooldown_until"] for state in self._token_states)
+                wait_for = max(0, next_ready - now)
+            if wait_for > 0:
+                time.sleep(wait_for)
+
+    def _wait_for_request_slot(self, token_index):
+        if self.request_delay <= 0:
+            return
+        while True:
+            with self._token_lock:
+                last_request_at = self._token_states[token_index]["last_request_at"]
+                now = time.monotonic()
+                wait_for = self.request_delay - (now - last_request_at)
+                if wait_for <= 0:
+                    self._token_states[token_index]["last_request_at"] = now
+                    return
+            time.sleep(wait_for)
+
     def _with_retry(self, action, label):
         last_exception = None
         for attempt in range(1, self.max_retries + 1):
             try:
-                return action()
+                token_index = self._select_token_index()
+                self._wait_for_request_slot(token_index)
+                client = self._token_states[token_index]["client"]
+                return action(client)
             except GithubException as e:
                 last_exception = e
+                if self._is_rate_limited(e):
+                    self._mark_rate_limited(token_index, e)
+                    continue
                 if e.status in (403, 429, 500, 502, 503, 504):
                     delay = self._compute_backoff(attempt, e)
                     logger.info(f"{label} failed with {e.status}, retrying in {delay:.2f}s")
@@ -140,12 +215,12 @@ class GitHubClient:
     def get_repo_details(self, owner, repo_name):
         try:
             repo = self._with_retry(
-                lambda: self.client.get_repo(f"{owner}/{repo_name}"),
+                lambda client: client.get_repo(f"{owner}/{repo_name}"),
                 f"GET /repos/{owner}/{repo_name}"
             )
             try:
                 readme = self._with_retry(
-                    lambda: self._get_readme_content(repo),
+                    lambda client: self._get_readme_content(client, owner, repo_name),
                     f"GET /repos/{owner}/{repo_name}/readme"
                 )
             except GithubException as e:
@@ -166,7 +241,7 @@ class GitHubClient:
                 "forks_count": repo.forks_count,
                 "language": repo.language,
                 "topics": self._with_retry(
-                    lambda: repo.get_topics(),
+                    lambda client: client.get_repo(f"{owner}/{repo_name}").get_topics(),
                     f"GET /repos/{owner}/{repo_name}/topics"
                 ),
                 "readme": readme
@@ -175,7 +250,8 @@ class GitHubClient:
             print(f"Error getting repo details for {owner}/{repo_name}: {e}")
             return None
 
-    def _get_readme_content(self, repo):
+    def _get_readme_content(self, client, owner, repo_name):
+        repo = client.get_repo(f"{owner}/{repo_name}")
         content = repo.get_readme()
         return content.decoded_content.decode('utf-8')
 
@@ -203,7 +279,7 @@ class GitHubClient:
             
             # Get current stars
             repo = self._with_retry(
-                lambda: self.client.get_repo(f"{owner}/{repo_name}"),
+                lambda client: client.get_repo(f"{owner}/{repo_name}"),
                 f"GET /repos/{owner}/{repo_name}"
             )
             current_history.append({
@@ -225,7 +301,10 @@ class GitHubClient:
         
         # Let's try to get some history.
         try:
-            repo = self.client.get_repo(f"{owner}/{repo_name}")
+            repo = self._with_retry(
+                lambda client: client.get_repo(f"{owner}/{repo_name}"),
+                f"GET /repos/{owner}/{repo_name}"
+            )
             total_stars = repo.stargazers_count
             
             history = []
@@ -241,7 +320,7 @@ class GitHubClient:
             
             if total_stars < 2000:
                 stargazers = self._with_retry(
-                    lambda: repo.get_stargazers_with_dates(),
+                    lambda client: client.get_repo(f"{owner}/{repo_name}").get_stargazers_with_dates(),
                     f"GET /repos/{owner}/{repo_name}/stargazers"
                 )
                 # Aggregate by day

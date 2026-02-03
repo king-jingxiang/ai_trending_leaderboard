@@ -8,6 +8,17 @@ interface RepoCardProps {
 }
 
 export const RepoCard: React.FC<RepoCardProps> = ({ repo, rank }) => {
+  const normalizedTags = Array.isArray(repo.tags)
+    ? { primary: [], secondary: repo.tags }
+    : {
+        primary: repo.tags?.primary_tags || [],
+        secondary: repo.tags?.secondary_tags || [],
+      };
+  const tagItems = [
+    ...normalizedTags.primary.map((tag) => ({ tag, level: 'primary' as const })),
+    ...normalizedTags.secondary.map((tag) => ({ tag, level: 'secondary' as const })),
+  ].slice(0, 3);
+
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-lg transition-shadow duration-200 group flex flex-col h-full">
       <div className="flex justify-between items-start mb-2 gap-3">
@@ -53,12 +64,16 @@ export const RepoCard: React.FC<RepoCardProps> = ({ repo, rank }) => {
       </div>
 
       <div className="mt-auto pt-4 flex flex-wrap gap-2">
-        {repo.tags.slice(0, 3).map((tag) => (
+        {tagItems.map((tagItem) => (
           <span 
-            key={tag} 
-            className="px-2 py-0.5 rounded-md bg-gray-100 text-gray-600 text-xs font-medium"
+            key={`${tagItem.level}-${tagItem.tag}`} 
+            className={
+              tagItem.level === 'primary'
+                ? "px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-xs font-medium border border-indigo-200"
+                : "px-2 py-0.5 rounded-full bg-slate-50 text-slate-600 text-xs font-medium border border-slate-200"
+            }
           >
-            {tag}
+            {tagItem.tag}
           </span>
         ))}
       </div>

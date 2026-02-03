@@ -11,8 +11,8 @@ export interface Repo {
   stars: number;
   forks: number;
   growth: number;
-  tags: string[];
-  topics: string[];
+  tags: string[] | { primary_tags: string[]; secondary_tags: string[] };
+  topics?: string[];
   star_history?: StarHistoryPoint[];
   last_seen?: string;
 }

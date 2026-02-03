@@ -6,6 +6,7 @@ import clsx from 'clsx';
 
 type SortMode = 'composite' | 'trend' | 'stars';
 type FilterMode = 'tag' | 'topic';
+type TagLevel = 'all' | 'primary' | 'secondary';
 
 const SORT_OPTIONS: { value: SortMode; label: string }[] = [
   { value: 'composite', label: '综合排序' },
@@ -13,38 +14,15 @@ const SORT_OPTIONS: { value: SortMode; label: string }[] = [
   { value: 'stars', label: 'Star 数' }
 ];
 
-const TAG_DEFINITIONS: Record<string, string> = {
-  "Foundation Model": "开源或可训练的基础模型/大模型权重与训练框架",
-  "Inference & Serving": "推理引擎、模型服务、加速与部署",
-  "Fine-tuning & Training": "微调、训练框架、参数高效训练",
-  "Quantization": "量化、低比特推理、模型压缩",
-  "Agent Framework": "多智能体或代理应用框架",
-  "Workflow Orchestration": "面向流程编排、自动化工作流平台",
-  "RAG": "检索增强生成、索引与知识增强",
-  "Vector Database": "向量数据库、向量检索引擎",
-  "Coding Assistant": "代码生成/补全/重构等开发助手",
-  "Chatbot": "对话机器人、客服/聊天应用",
-  "Image & Video Generation": "图像/视频生成与编辑",
-  "Audio & Speech": "语音识别/合成/音频生成",
-  "AI Application": "AI 有关的应用程序，网站或客户端程序等",
-  "Skill": "AI 技能库、技能/工具市场、可复用能力集合",
-  "MCP": "Model Context Protocol 相关服务器/客户端/SDK/注册表",
-  "LLMOps & Evaluation": "模型监控、评测、可观测性、数据/反馈闭环",
-  "Security & Safety": "安全、对齐、红队、内容审核",
-  "Data & Datasets": "数据集、数据清洗与数据标注工具",
-  "Prompt Engineering": "提示词工程、Prompt 模板与最佳实践",
-  "Benchmark & Evaluation": "基准测试、评测套件与排行榜",
-  "AI for Science": "科学计算、材料/化学/生物等科研场景",
-  "Robotics & Physical AI": "机器人、具身智能、物理世界交互",
-  "Computer Vision": "传统视觉任务、检测/分割/三维重建/三维分割",
-  "Middleware": "中间件、应用开发框架（Streamlit/Gradio）、搜索引擎（ES）等基础设施",
-};
-
 export const CategoryExplorer: React.FC = () => {
   const [repos, setRepos] = useState<Repo[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState("All");
+  const [selectedPrimary, setSelectedPrimary] = useState("All");
+  const [selectedSecondary, setSelectedSecondary] = useState("All");
+  const [selectedTopic, setSelectedTopic] = useState("All");
+  const [selectedTagLevel, setSelectedTagLevel] = useState<TagLevel>('all');
   const [sortMode, setSortMode] = useState<SortMode>('composite');
   const [filterMode, setFilterMode] = useState<FilterMode>('tag');
+  const [expandedPrimaries, setExpandedPrimaries] = useState<string[]>([]);
   const mainContentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -53,28 +31,59 @@ export const CategoryExplorer: React.FC = () => {
 
   useEffect(() => {
     mainContentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [selectedCategory]);
+  }, [selectedPrimary, selectedSecondary, selectedTopic, filterMode]);
 
   const handleFilterModeChange = (mode: FilterMode) => {
     setFilterMode(mode);
-    setSelectedCategory("All");
+    setSelectedPrimary("All");
+    setSelectedSecondary("All");
+    setSelectedTopic("All");
+    setSelectedTagLevel('all');
   };
 
-  const tagCategories = useMemo(() => {
-    const counts = new Map<string, number>();
+  const normalizeTags = (tags: Repo['tags']) => {
+    if (Array.isArray(tags)) {
+      return { primary: [], secondary: tags };
+    }
+    return {
+      primary: tags?.primary_tags || [],
+      secondary: tags?.secondary_tags || [],
+    };
+  };
+
+  const tagHierarchy = useMemo(() => {
+    const hierarchy = new Map<string, { count: number; secondary: Map<string, number> }>();
     repos.forEach((repo) => {
-      repo.tags.forEach((tag) => {
-        const normalized = tag.trim();
-        if (!normalized) return;
-        counts.set(normalized, (counts.get(normalized) || 0) + 1);
+      const { primary, secondary } = normalizeTags(repo.tags);
+      const primarySet = new Set(primary.map((tag) => tag.trim()).filter(Boolean));
+      const secondarySet = new Set(secondary.map((tag) => tag.trim()).filter(Boolean));
+      primarySet.forEach((primaryTag) => {
+        const current = hierarchy.get(primaryTag) || { count: 0, secondary: new Map() };
+        current.count += 1;
+        secondarySet.forEach((secondaryTag) => {
+          current.secondary.set(secondaryTag, (current.secondary.get(secondaryTag) || 0) + 1);
+        });
+        hierarchy.set(primaryTag, current);
       });
     });
-    const ordered = Object.keys(TAG_DEFINITIONS)
-      .map((name) => ({ name, count: counts.get(name) || 0 }))
-      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
-      .map((item) => item.name);
-    return ["All", ...ordered];
+    return Array.from(hierarchy.entries())
+      .map(([name, data]) => ({
+        name,
+        count: data.count,
+        secondary: Array.from(data.secondary.entries())
+          .map(([secondaryName, count]) => ({ name: secondaryName, count }))
+          .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+      }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }, [repos]);
+
+  const togglePrimaryExpand = (primaryName: string) => {
+    setExpandedPrimaries((prev) =>
+      prev.includes(primaryName)
+        ? prev.filter((item) => item !== primaryName)
+        : [...prev, primaryName]
+    );
+  };
 
   const topicCategories = useMemo(() => {
     const counts = new Map<string, number>();
@@ -91,13 +100,25 @@ export const CategoryExplorer: React.FC = () => {
     return ["All", ...ordered];
   }, [repos]);
 
-  const normalizedCategory = selectedCategory.trim().toLowerCase();
-  const filteredRepos = selectedCategory === "All"
-    ? repos
-    : repos.filter(repo => {
-        const list = filterMode === 'tag' ? repo.tags : (repo.topics || []);
-        return list.some(item => item.trim().toLowerCase() === normalizedCategory);
-      });
+  const normalizedTopic = selectedTopic.trim().toLowerCase();
+  const normalizedPrimary = selectedPrimary.trim().toLowerCase();
+  const normalizedSecondary = selectedSecondary.trim().toLowerCase();
+  const filteredRepos = filterMode === 'topic'
+    ? (selectedTopic === "All"
+        ? repos
+        : repos.filter(repo => {
+            const list = repo.topics || [];
+            return list.some(item => item.trim().toLowerCase() === normalizedTopic);
+          }))
+    : (selectedTagLevel === 'all'
+        ? repos
+        : repos.filter(repo => {
+            const { primary, secondary } = normalizeTags(repo.tags);
+            const primaryMatch = primary.some(item => item.trim().toLowerCase() === normalizedPrimary);
+            if (selectedTagLevel === 'primary') return primaryMatch;
+            const secondaryMatch = secondary.some(item => item.trim().toLowerCase() === normalizedSecondary);
+            return primaryMatch && secondaryMatch;
+          }));
 
   const parseUpdatedAt = (repo: Repo) => {
     if (!repo.last_seen) return 0;
@@ -161,27 +182,118 @@ export const CategoryExplorer: React.FC = () => {
           <h3 className="font-semibold text-gray-900 mb-4 px-2">
             {filterMode === 'tag' ? 'Tags' : 'Topics'}
           </h3>
-          <div className="flex flex-wrap gap-1.5">
-            {(filterMode === 'tag' ? tagCategories : topicCategories).map(category => (
-              <button
-                key={category}
-                onClick={() => setSelectedCategory(category)}
-                title={
-                  filterMode === 'tag'
-                    ? (category !== "All" ? TAG_DEFINITIONS[category] : "显示全部类别")
-                    : (category !== "All" ? `Topic: ${category}` : "显示全部 Topic")
-                }
-                className={clsx(
-                  "px-2 py-1 rounded-md text-xs text-left transition-colors",
-                  selectedCategory === category
-                    ? "bg-indigo-50 text-indigo-700 font-medium"
-                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                )}
-              >
-                {category}
-              </button>
-            ))}
-          </div>
+          {filterMode === 'tag' ? (
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2 border-b border-gray-100 pb-3">
+                <button
+                  onClick={() => {
+                    setSelectedPrimary("All");
+                    setSelectedSecondary("All");
+                    setSelectedTagLevel('all');
+                  }}
+                  className={clsx(
+                    "px-2.5 py-1 rounded-full text-xs font-medium border transition-colors",
+                    selectedTagLevel === 'all'
+                      ? "bg-indigo-50 text-indigo-700 border-indigo-200 shadow-sm"
+                      : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:text-gray-900"
+                  )}
+                >
+                  All
+                </button>
+              </div>
+              {tagHierarchy.length === 0 ? (
+                <div className="text-xs text-gray-400 px-2 py-1">暂无标签</div>
+              ) : (
+                tagHierarchy.map((primary) => {
+                  const isExpanded = expandedPrimaries.includes(primary.name);
+                  return (
+                    <div
+                      key={primary.name}
+                      className="rounded-lg border border-gray-200 bg-white shadow-sm"
+                    >
+                      <div className="flex items-center justify-between gap-2 px-3 py-2">
+                        <button
+                          onClick={() => {
+                            setSelectedPrimary(primary.name);
+                            setSelectedSecondary("All");
+                            setSelectedTagLevel('primary');
+                            togglePrimaryExpand(primary.name);
+                          }}
+                          className={clsx(
+                            "flex items-center gap-2 text-left text-xs font-semibold rounded-md px-2.5 py-1 transition-colors",
+                            selectedPrimary === primary.name && selectedTagLevel === 'primary'
+                              ? "bg-indigo-50 text-indigo-700"
+                              : "text-gray-700 hover:bg-gray-50"
+                          )}
+                        >
+                          <span>{primary.name}</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                            {primary.count}
+                          </span>
+                        </button>
+                        <button
+                          onClick={() => togglePrimaryExpand(primary.name)}
+                          className={clsx(
+                            "text-xs font-semibold px-2 py-1 rounded-md border transition-colors",
+                            isExpanded
+                              ? "bg-gray-50 text-gray-700 border-gray-200"
+                              : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"
+                          )}
+                        >
+                          {isExpanded ? '收起' : '展开'}
+                        </button>
+                      </div>
+                      {isExpanded && (
+                        <div className="px-3 pb-3 pt-1 space-y-2">
+                          {primary.secondary.map((secondary) => (
+                            <button
+                              key={`${primary.name}-${secondary.name}`}
+                              onClick={() => {
+                                setSelectedPrimary(primary.name);
+                                setSelectedSecondary(secondary.name);
+                                setSelectedTagLevel('secondary');
+                              }}
+                              className={clsx(
+                                "w-full flex items-center justify-between rounded-md border px-3 py-2 text-xs font-medium transition-colors",
+                                selectedPrimary === primary.name &&
+                                  selectedSecondary === secondary.name &&
+                                  selectedTagLevel === 'secondary'
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-200 shadow-sm"
+                                  : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:text-gray-900"
+                              )}
+                            >
+                              <span className="truncate">{secondary.name}</span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                                {secondary.count}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {topicCategories.map(category => (
+                <button
+                  key={category}
+                  onClick={() => setSelectedTopic(category)}
+                  title={category !== "All" ? `Topic: ${category}` : "显示全部 Topic"}
+                  className={clsx(
+                    "px-2.5 py-1 rounded-full text-xs font-medium border transition-colors",
+                    selectedTopic === category
+                      ? "bg-indigo-50 text-indigo-700 border-indigo-200 shadow-sm"
+                      : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:text-gray-900"
+                  )}
+                >
+                  {category}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -191,16 +303,19 @@ export const CategoryExplorer: React.FC = () => {
           <div>
             <h1
               className="text-2xl font-bold text-gray-900"
-              title={
-                filterMode === 'tag'
-                  ? (selectedCategory !== "All" ? TAG_DEFINITIONS[selectedCategory] : "显示全部类别")
-                  : (selectedCategory !== "All" ? `Topic: ${selectedCategory}` : "显示全部 Topic")
-              }
             >
-              {selectedCategory}
+              {filterMode === 'tag'
+                ? (selectedTagLevel === 'all'
+                    ? 'All'
+                    : selectedTagLevel === 'primary'
+                      ? selectedPrimary
+                      : `${selectedPrimary} / ${selectedSecondary}`)
+                : selectedTopic}
             </h1>
             <p className="text-gray-500 mt-1">
-              Found {filteredRepos.length} repositories · {filterMode === 'tag' ? 'Tag' : 'Topic'} 视图
+              Found {filteredRepos.length} repositories · {filterMode === 'tag'
+                ? `Tag 视图 · ${selectedTagLevel === 'primary' ? '一级标签' : selectedTagLevel === 'secondary' ? '二级标签' : '全部标签'}`
+                : 'Topic 视图'}
             </p>
           </div>
           <div className="bg-white p-1 rounded-lg border border-gray-200 inline-flex">

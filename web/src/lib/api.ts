@@ -12,7 +12,10 @@ const MOCK_REPOS: Repo[] = [
     stars: 12500,
     forks: 1200,
     growth: 450,
-    tags: ["Agent Framework", "LLM"],
+    tags: {
+      primary_tags: ["Frameworks & Orchestration"],
+      secondary_tags: ["Agent Framework", "RAG"]
+    },
     topics: ["agent-framework", "multi-agent", "llm"],
     star_history: [
       { date: "2023-10-01", count: 100 },
@@ -30,7 +33,10 @@ const MOCK_REPOS: Repo[] = [
     stars: 8900,
     forks: 800,
     growth: 120,
-    tags: ["Inference & Serving", "Quantization"],
+    tags: {
+      primary_tags: ["Infrastructure & Training"],
+      secondary_tags: ["Inference & Serving", "Quantization"]
+    },
     topics: ["inference", "serving", "quantization"],
     star_history: [
       { date: "2023-12-01", count: 1000 },
@@ -42,9 +48,9 @@ const MOCK_REPOS: Repo[] = [
 
 export async function fetchTrending(range: TimeRange): Promise<Repo[]> {
   try {
-    console.log(`Fetching trending for range: ${range}`); // Use variable
+    console.log(`Fetching trending for range: ${range}`);
     const today = new Date().toISOString().split('T')[0];
-    const response = await fetch(`${BASE_URL}/data/daily/${today}.json`);
+    const response = await fetch(`${BASE_URL}/data/${range}/${today}.json`);
     if (!response.ok) throw new Error("Failed to fetch");
     return await response.json();
   } catch (e) {
