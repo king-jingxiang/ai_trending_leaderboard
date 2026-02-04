@@ -25,6 +25,7 @@ jobs:
       - name: Run Crawler
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }} # Using GH_PAT to avoid rate limits if possible, or GITHUB_TOKEN
+          CUSTOM_GITHUB_TOKENS: ${{ secrets.CUSTOM_GITHUB_TOKENS }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           S3_ENDPOINT_URL: ${{ secrets.S3_ENDPOINT_URL }}
           S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
