@@ -1,4 +1,4 @@
-import type { Repo, TimeRange } from '../types';
+import type { Repo, TimeRange, TopProjectsResponse } from '../types';
 
 const BASE_URL = import.meta.env.VITE_DATA_URL || 'https://pub-f31a5865021b44d0a2c4003b3da37f04.r2.dev';
 
@@ -59,6 +59,20 @@ export async function fetchTrending(range: TimeRange): Promise<Repo[]> {
   }
 }
 
+export async function fetchTopProjects(date?: string): Promise<TopProjectsResponse | null> {
+  try {
+    const targetDate = date || new Date().toISOString().split('T')[0];
+    console.log(`Fetching top projects for date: ${targetDate}`);
+    const response = await fetch(`${BASE_URL}/data/top/top_projects_${targetDate}.json`);
+    if (!response.ok) throw new Error("Failed to fetch top projects");
+    return await response.json();
+  } catch (e) {
+    console.warn("Failed to fetch top projects", e);
+    // Try yesterday if today fails? Or just return null
+    return null;
+  }
+}
+
 export async function fetchRepoDetails(owner: string, repo: string): Promise<Repo | null> {
   try {
     const response = await fetch(`${BASE_URL}/data/projects/${owner}/${repo}.json`);
@@ -74,7 +88,13 @@ export async function fetchAllRepos(): Promise<Repo[]> {
   try {
     const response = await fetch(`${BASE_URL}/data/index.json`);
     if (!response.ok) throw new Error("Failed to fetch index");
-    return await response.json();
+    const data = await response.json();
+    return data.map((item: any) => ({
+      ...item,
+      // Map growth_90d to growth if growth is missing, or default to 0
+      growth: item.growth ?? item.growth_90d ?? 0,
+      last_seen: item.last_seen ?? item.last_updated
+    }));
   } catch {
     return MOCK_REPOS;
   }

@@ -212,6 +212,22 @@ class GitHubClient:
                 
         return repos
 
+    def get_repo_stars(self, owner, repo_name):
+        """
+        Fetches only the star count for a repo.
+        """
+        try:
+            repo = self._with_retry(
+                lambda client: client.get_repo(f"{owner}/{repo_name}"),
+                f"GET /repos/{owner}/{repo_name}"
+            )
+            return repo.stargazers_count
+        except GithubException as e:
+            if e.status == 404:
+                return None
+            print(f"Error getting stars for {owner}/{repo_name}: {e}")
+            return None
+
     def get_repo_details(self, owner, repo_name):
         try:
             repo = self._with_retry(

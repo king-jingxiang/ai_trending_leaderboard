@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, LineChart, Tag, Github } from 'lucide-react';
+import { LayoutDashboard, LineChart, Tag, Github, Trophy } from 'lucide-react';
 import clsx from 'clsx';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -8,7 +8,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   const navItems = [
     { path: '/', label: 'Trending', icon: LayoutDashboard },
-    { path: '/growth', label: 'Growth Machine', icon: LineChart },
+    { path: '/leaderboard', label: 'Top Leaderboard', icon: Trophy },
     { path: '/categories', label: 'Categories', icon: Tag },
   ];
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { RepoCard } from '../components/RepoCard';
-import { fetchTrending } from '../lib/api';
+import { fetchAllRepos } from '../lib/api';
 import type { Repo } from '../types';
 import clsx from 'clsx';
 
@@ -26,7 +26,7 @@ export const CategoryExplorer: React.FC = () => {
   const mainContentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetchTrending('daily').then(setRepos);
+    fetchAllRepos().then(setRepos);
   }, []);
 
   useEffect(() => {
@@ -338,7 +338,7 @@ export const CategoryExplorer: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {sortedRepos.map((repo, idx) => (
-            <RepoCard key={`${repo.owner}/${repo.repo}`} repo={repo} rank={idx + 1} />
+            <RepoCard key={`${repo.owner}/${repo.repo}`} repo={repo} rank={idx + 1} growthLabel="90d" />
           ))}
         </div>
       </div>

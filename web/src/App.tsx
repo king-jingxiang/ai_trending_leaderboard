@@ -1,7 +1,8 @@
 import { HashRouter, Routes, Route } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { Dashboard } from './pages/Dashboard';
-import { GrowthTimeMachine } from './pages/GrowthTimeMachine';
+import { TopLeaderboard } from './pages/TopLeaderboard';
+import { ProjectDetails } from './pages/ProjectDetails';
 import { CategoryExplorer } from './pages/CategoryExplorer';
 
 function App() {
@@ -10,7 +11,8 @@ function App() {
       <Layout>
         <Routes>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/growth" element={<GrowthTimeMachine />} />
+          <Route path="/leaderboard" element={<TopLeaderboard />} />
+          <Route path="/project/:owner/:repo" element={<ProjectDetails />} />
           <Route path="/categories" element={<CategoryExplorer />} />
         </Routes>
       </Layout>

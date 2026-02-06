@@ -1,13 +1,15 @@
 import React from 'react';
-import { Star, GitFork, TrendingUp, ExternalLink } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Star, GitFork, TrendingUp } from 'lucide-react';
 import type { Repo } from '../types';
 
 interface RepoCardProps {
   repo: Repo;
   rank?: number;
+  growthLabel?: string;
 }
 
-export const RepoCard: React.FC<RepoCardProps> = ({ repo, rank }) => {
+export const RepoCard: React.FC<RepoCardProps> = ({ repo, rank, growthLabel = "today" }) => {
   const normalizedTags = Array.isArray(repo.tags)
     ? { primary: [], secondary: repo.tags }
     : {
@@ -26,19 +28,17 @@ export const RepoCard: React.FC<RepoCardProps> = ({ repo, rank }) => {
           {rank && (
             <span className="text-gray-400 font-mono text-xl font-bold">#{rank}</span>
           )}
-          <a 
-            href={`https://github.com/${repo.owner}/${repo.repo}`}
-            target="_blank"
-            rel="noreferrer"
-            className="text-lg font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 min-w-0"
+          <Link 
+            to={`/project/${repo.owner}/${repo.repo}`}
+            className="text-base sm:text-lg font-semibold text-indigo-600 hover:text-indigo-800 flex items-start gap-1 min-w-0 break-words"
+            title={`${repo.owner}/${repo.repo}`}
           >
-            <span className="truncate">{repo.owner} / <span className="font-bold">{repo.repo}</span></span>
-            <ExternalLink size={14} className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-          </a>
+            <span>{repo.owner} / <span className="font-bold">{repo.repo}</span></span>
+          </Link>
         </div>
         <div className="flex items-center text-green-600 bg-green-50 px-2 py-1 rounded-full text-xs font-medium flex-shrink-0">
           <TrendingUp size={14} className="mr-1" />
-          +{repo.growth} today
+          +{repo.growth} {growthLabel}
         </div>
       </div>
 

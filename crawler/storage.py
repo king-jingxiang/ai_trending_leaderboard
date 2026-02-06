@@ -42,10 +42,15 @@ class Storage:
     def list_files(self, prefix):
         """Lists files in S3 with a given prefix."""
         try:
-            response = self.s3.list_objects_v2(Bucket=self.bucket, Prefix=prefix)
-            if 'Contents' in response:
-                return [obj['Key'] for obj in response['Contents']]
-            return []
+            paginator = self.s3.get_paginator('list_objects_v2')
+            pages = paginator.paginate(Bucket=self.bucket, Prefix=prefix)
+            
+            keys = []
+            for page in pages:
+                if 'Contents' in page:
+                    for obj in page['Contents']:
+                        keys.append(obj['Key'])
+            return keys
         except ClientError as e:
             print(f"Error listing files with prefix {prefix}: {e}")
             return []
