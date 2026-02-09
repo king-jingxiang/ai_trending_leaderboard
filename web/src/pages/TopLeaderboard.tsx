@@ -158,17 +158,17 @@ export const TopLeaderboard: React.FC = () => {
                             <div>
                                 <Link 
                                   to={`/project/${project.owner}/${project.repo}`}
-                                  className="text-sm font-semibold text-indigo-600 hover:text-indigo-900 block truncate max-w-[180px] sm:max-w-xs"
+                                  className="text-sm font-semibold text-indigo-600 hover:text-indigo-900 block"
                                 >
-                                  {project.name}
+                                  {project.repo}
                                 </Link>
                                 <a 
                                   href={project.url} 
                                   target="_blank" 
                                   rel="noopener noreferrer"
-                                  className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 mt-0.5"
+                                  className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 mt-0.5 break-all"
                                 >
-                                  github.com <ExternalLink size={10} />
+                                  {project.url} <ExternalLink size={10} />
                                 </a>
                                 {/* Mobile-only metrics */}
                                 <div className="sm:hidden mt-1 text-xs text-gray-500 flex gap-2">
@@ -179,13 +179,13 @@ export const TopLeaderboard: React.FC = () => {
                           </div>
                         </td>
                         <td className="hidden sm:table-cell px-6 py-4 whitespace-nowrap text-center text-sm text-gray-500">
-                          {project.stargazers_count.toLocaleString()}
+                          {(project.stargazers_count / 1000).toFixed(1)}k
                         </td>
                         <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap text-center text-sm text-gray-500">
-                          {project.forks_count.toLocaleString()}
+                          {(project.forks_count / 1000).toFixed(1)}k
                         </td>
                         <td className="px-3 py-4 whitespace-nowrap text-center text-sm text-green-600 font-medium sm:px-6">
-                          +{project.growth_90d.toLocaleString()}
+                          +{(project.growth_90d / 1000).toFixed(1)}k
                         </td>
                         <td className="hidden lg:table-cell px-6 py-4 whitespace-nowrap text-center text-sm font-bold text-gray-900">
                           {(project.score / 1000).toFixed(1)}k

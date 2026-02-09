@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .config import Config
 from .storage import Storage
 from .github_client import GitHubClient
-from .llm import LLMClient
+from .llm import LLMClient, TAG_HIERARCHY
 from .ossinsight_client import OSSInsightClient
 from .analysis_utils import extract_project_info, group_and_rank_projects, calculate_growth_metrics
 
@@ -228,19 +228,17 @@ def main():
             
             current_stars = repo_data.get('stargazers_count', 0)
             
+            # Optimized entry for index.json
             entry = {
-                "project": full_name,
                 "owner": owner,
                 "repo": repo,
-                "description": repo_data.get('description'),
+                "description": (repo_data.get('description') or "")[:250], # Truncate description
                 "language": repo_data.get('language'),
                 "tags": repo_data.get('tags', {}),
-                "topics": repo_data.get('topics', []),
-                "current_stars": current_stars,
+                "topics": (repo_data.get('topics') or [])[:10], # Limit topics to top 10
                 "stars": current_stars,
                 "forks": repo_data.get('forks_count', 0),
                 "growth_90d": delta_90d,
-                "growth_rate_90d": growth_rate_90d,
                 "last_updated": repo_data.get('updated_at', today_str)
             }
             return entry
@@ -264,15 +262,100 @@ def main():
 
     # --- Part 4: Top Project Analysis (Refactored) ---
     try:
-        print("Generating Top Project Analysis (Top 20 by 90d Growth)...")
+        print("Generating Top Project Analysis (Leaderboard Structure)...")
         
-        # Sort by growth_rate_90d descending
-        sorted_projects = sorted(index_projects, key=lambda x: x.get('growth_rate_90d', 0), reverse=True)
-        top_20 = sorted_projects[:20]
+        # 1. Structure Initialization
+        categories_map = {}
+        for p_name, p_info in TAG_HIERARCHY.items():
+            categories_map[p_name] = {
+                "name": p_name,
+                "subcategories": {}
+            }
+            if "children" in p_info:
+                for s_name in p_info["children"].keys():
+                    categories_map[p_name]["subcategories"][s_name] = []
+
+        # 2. Score & Distribute Projects
+        for project in index_projects:
+            # Calculate Score
+            stars = project.get('stars', 0)
+            forks = project.get('forks', 0)
+            growth_90d = project.get('growth_90d', 0)
+            
+            # Weighted Score = Stars + (Forks * 2) + (90d Growth * 10)
+            score = stars + (forks * 2) + (growth_90d * 10)
+            project['score'] = score
+            
+            # Get Tags
+            tags = project.get('tags', {})
+            if not isinstance(tags, dict):
+                continue
+                
+            p_tags = tags.get('primary_tags', [])
+            s_tags = tags.get('secondary_tags', [])
+            
+            # Distribute
+            for p_tag in p_tags:
+                if p_tag not in categories_map:
+                    continue
+                
+                valid_s_tags = [s for s in s_tags if s in categories_map[p_tag]["subcategories"]]
+                
+                for s_tag in valid_s_tags:
+                    categories_map[p_tag]["subcategories"][s_tag].append(project)
+
+        # 3. Sort & Format Output
+        final_categories = []
         
+        for p_name, p_data in categories_map.items():
+            formatted_subcategories = []
+            
+            # Iterate through defined subcategories to maintain order
+            defined_subs = TAG_HIERARCHY.get(p_name, {}).get("children", {}).keys()
+            
+            for s_name in defined_subs:
+                projects_list = p_data["subcategories"].get(s_name, [])
+                if not projects_list:
+                    continue
+                
+                # Sort by Score Descending
+                projects_list.sort(key=lambda x: x['score'], reverse=True)
+                
+                # Assign Rank
+                ranked_projects = []
+                for idx, proj in enumerate(projects_list):
+                    # Optimization: Only include fields strictly needed by TopLeaderboard.tsx
+                    r_proj = {
+                        "rank": idx + 1,
+                        "owner": proj['owner'],
+                        "repo": proj['repo'],
+                        "name": proj['repo'],  # Used as key in frontend
+                        "url": f"https://github.com/{proj['owner']}/{proj['repo']}",
+                        "description": proj.get('description'),
+                        "stargazers_count": proj['stars'],
+                        "forks_count": proj['forks'],
+                        "growth_90d": proj.get('growth_90d', 0),
+                        "score": proj.get('score', 0)
+                    }
+                    ranked_projects.append(r_proj)
+                
+                # Limit to Top 30
+                ranked_projects = ranked_projects[:30]
+                
+                formatted_subcategories.append({
+                    "name": s_name,
+                    "projects": ranked_projects
+                })
+            
+            if formatted_subcategories:
+                final_categories.append({
+                    "name": p_name,
+                    "subcategories": formatted_subcategories
+                })
+
         output_data = {
             "date": today_str,
-            "projects": top_20
+            "categories": final_categories
         }
         
         output_dir = "output/top"

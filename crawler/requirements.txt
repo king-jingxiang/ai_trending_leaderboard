@@ -1,8 +1,6 @@
-requests
 beautifulsoup4
 boto3
-google-genai
+openai
 PyGitHub
 python-dotenv
-gtrending
-tenacity
+requests

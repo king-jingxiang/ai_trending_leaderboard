@@ -23,6 +23,11 @@ export const CategoryExplorer: React.FC = () => {
   const [sortMode, setSortMode] = useState<SortMode>('composite');
   const [filterMode, setFilterMode] = useState<FilterMode>('tag');
   const [expandedPrimaries, setExpandedPrimaries] = useState<string[]>([]);
+  
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 24;
+
   const mainContentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -30,8 +35,15 @@ export const CategoryExplorer: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // Reset page to 1 when filters change
+    setCurrentPage(1);
     mainContentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [selectedPrimary, selectedSecondary, selectedTopic, filterMode]);
+  }, [selectedPrimary, selectedSecondary, selectedTopic, filterMode, sortMode]);
+
+  // Scroll to top when page changes
+  useEffect(() => {
+    mainContentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [currentPage]);
 
   const handleFilterModeChange = (mode: FilterMode) => {
     setFilterMode(mode);
@@ -149,6 +161,19 @@ export const CategoryExplorer: React.FC = () => {
     if (sortMode === 'stars') return b.stars - a.stars;
     return getCompositeScore(b) - getCompositeScore(a);
   });
+
+  // Pagination Logic
+  const totalPages = Math.ceil(sortedRepos.length / itemsPerPage);
+  const paginatedRepos = sortedRepos.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  const handlePageChange = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  };
 
   return (
     <div className="flex flex-col md:flex-row gap-8">
@@ -336,11 +361,73 @@ export const CategoryExplorer: React.FC = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {sortedRepos.map((repo, idx) => (
-            <RepoCard key={`${repo.owner}/${repo.repo}`} repo={repo} rank={idx + 1} growthLabel="90d" />
+        <div 
+          className="grid grid-cols-1 md:grid-cols-2 gap-6"
+          key={`${filterMode}-${selectedTagLevel}-${selectedPrimary}-${selectedSecondary}-${selectedTopic}-${sortMode}-${currentPage}`}
+        >
+          {paginatedRepos.map((repo, idx) => (
+            <RepoCard 
+              key={`${repo.owner}/${repo.repo}`} 
+              repo={repo} 
+              rank={(currentPage - 1) * itemsPerPage + idx + 1} 
+              growthLabel="90d" 
+            />
           ))}
         </div>
+
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex justify-center items-center mt-8 gap-2">
+            <button
+              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="px-3 py-1 rounded-md border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+            
+            <div className="flex items-center gap-1">
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                // Logic to show pages around current page
+                let pageNum = i + 1;
+                if (totalPages > 5) {
+                  if (currentPage > 3) {
+                    pageNum = currentPage - 3 + i + 1;
+                  }
+                  if (pageNum > totalPages) {
+                    pageNum = totalPages - (4 - i);
+                  }
+                }
+                
+                return (
+                  <button
+                    key={pageNum}
+                    onClick={() => handlePageChange(pageNum)}
+                    className={clsx(
+                      "w-8 h-8 rounded-md text-sm font-medium transition-colors",
+                      currentPage === pageNum
+                        ? "bg-indigo-600 text-white"
+                        : "text-gray-700 hover:bg-gray-100"
+                    )}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1 rounded-md border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+            <span className="ml-4 text-sm text-gray-500">
+              Page {currentPage} of {totalPages}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
