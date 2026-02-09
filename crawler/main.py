@@ -8,10 +8,70 @@ from .storage import Storage
 from .github_client import GitHubClient
 from .llm import LLMClient, TAG_HIERARCHY
 from .ossinsight_client import OSSInsightClient
+from .category_sync import parse_markdown_categories
 from .analysis_utils import extract_project_info, group_and_rank_projects, calculate_growth_metrics
 
+def apply_category_sync(repo_data, markdown_categories):
+    """
+    Applies category updates from markdown_categories to repo_data.
+    Returns True if data changed, False otherwise.
+    """
+    owner = repo_data.get('owner')
+    repo = repo_data.get('repo')
+    if not owner or not repo:
+        return False
+        
+    full_name = f"{owner}/{repo}"
+    if full_name not in markdown_categories:
+        return False
+        
+    cats = markdown_categories[full_name]
+    
+    current_tags = repo_data.get('tags', {})
+    current_primary_list = current_tags.get('primary_tags', [])
+    current_primary = current_primary_list[0] if current_primary_list else None
+    
+    # Handle set conversion for comparison
+    current_secondary_raw = current_tags.get('secondary_tags', [])
+    current_secondary = set(current_secondary_raw) if isinstance(current_secondary_raw, list) else set()
+    
+    new_primary = cats["primary"]
+    new_secondary = cats["secondary"]
+    
+    # Validation
+    if new_primary not in TAG_HIERARCHY and new_primary != "Uncategorized":
+        # print(f"Warning: Invalid primary tag '{new_primary}' for {full_name}. Skipping.")
+        return False
+
+    if new_primary != "Uncategorized":
+        valid_subs = TAG_HIERARCHY.get(new_primary, {}).get("children", {}).keys()
+        valid_new_secondary = {s for s in new_secondary if s in valid_subs}
+        new_secondary = valid_new_secondary
+    else:
+        new_secondary = set()
+
+    # Check for changes
+    primary_changed = (current_primary != new_primary)
+    secondary_changed = (current_secondary != new_secondary)
+    
+    if primary_changed or secondary_changed:
+        print(f"Sync Categories: {full_name}")
+        if primary_changed:
+            print(f"  - Primary: {current_primary} -> {new_primary}")
+        if secondary_changed:
+            print(f"  - Secondary: {current_secondary} -> {new_secondary}")
+        
+        if 'tags' not in repo_data:
+            repo_data['tags'] = {}
+        
+        repo_data['tags']['primary_tags'] = [new_primary]
+        repo_data['tags']['secondary_tags'] = list(new_secondary)
+        return True
+        
+    return False
+
 def main():
-    print("Starting AI Trending Crawler...")
+    print("Starting AI Trending Crawler ...")
     
     storage = Storage()
     gh_client = GitHubClient()
@@ -20,9 +80,19 @@ def main():
     
     today_str = datetime.datetime.now().strftime('%Y-%m-%d')
     
-    # Track processed repos to avoid double work
+    # 0. Load Categories from Markdown (Once)
+    print("Loading category overrides from PROJECT_CATEGORIES.md...")
+    markdown_categories = parse_markdown_categories("PROJECT_CATEGORIES.md")
+    print(f"Loaded {len(markdown_categories)} category overrides.")
+
+    # Cache for repo data to avoid re-reading S3
+    # Key: full_name, Value: repo_data dict
+    repo_data_cache = {}
+    
+    # Track processed repos to avoid double work in Part 2
     processed_full_names = set()
 
+    # --- Part 1: Process Trending Repos ---
     def process_trending_repo(repo_summary):
         try:
             owner = repo_summary['owner']
@@ -32,8 +102,15 @@ def main():
             
             print(f"Processing Trending: {full_name}...")
             
-            existing_data = storage.get_json(file_key)
+            # Check cache first (unlikely for trending unless duplicate in list)
+            if full_name in repo_data_cache:
+                repo_data = repo_data_cache[full_name]
+                existing_data = repo_data
+            else:
+                existing_data = storage.get_json(file_key)
+            
             repo_data = None
+            data_changed = False
             
             if existing_data:
                 print(f"  - Found existing data for {full_name}. Updating...")
@@ -41,15 +118,23 @@ def main():
                 current_stars = repo_summary['stars']
                 
                 history = repo_data.get('star_history', [])
+                # Only append if today's date is not last
                 if not history or history[-1]['date'] != today_str:
                     history.append({
                         "date": today_str,
                         "count": current_stars
                     })
                     repo_data['star_history'] = history
+                    data_changed = True
                     
-                repo_data['stargazers_count'] = current_stars
-                repo_data['forks_count'] = repo_summary['forks']
+                if repo_data.get('stargazers_count') != current_stars:
+                    repo_data['stargazers_count'] = current_stars
+                    data_changed = True
+                
+                if repo_data.get('forks_count') != repo_summary['forks']:
+                    repo_data['forks_count'] = repo_summary['forks']
+                    data_changed = True
+                    
                 repo_data['updated_at'] = datetime.datetime.now().isoformat()
                 
             else:
@@ -68,6 +153,7 @@ def main():
                 details['star_history'] = history
                 
                 repo_data = details
+                data_changed = True
             
             # Topics cleanup
             topics_raw = repo_data.get("topics") or []
@@ -76,23 +162,33 @@ def main():
             topics = [topic for topic in topics_raw if isinstance(topic, str) and topic.strip()]
             repo_data['topics'] = topics
 
-            storage.upload_json(file_key, repo_data)
+            # Apply Category Sync (Markdown Overrides)
+            if apply_category_sync(repo_data, markdown_categories):
+                data_changed = True
+
+            # Save if changed or new
+            if data_changed:
+                storage.upload_json(file_key, repo_data)
             
+            # Update Cache & Set
+            repo_data_cache[full_name] = repo_data
             processed_full_names.add(full_name)
             
             analysis_info = extract_project_info(repo_data)
 
             return {
-                "owner": owner,
-                "repo": repo_name,
-                "description": repo_data.get('description'),
-                "language": repo_data.get('language'),
-                "topics": topics,
-                "stars": repo_data.get('stargazers_count'),
-                "forks": repo_data.get('forks_count'),
-                "growth": repo_summary.get('growth'),
-                "tags": repo_data.get('tags', {}),
-                "_analysis_info": analysis_info
+                "summary": {
+                    "owner": owner,
+                    "repo": repo_name,
+                    "description": repo_data.get('description'),
+                    "language": repo_data.get('language'),
+                    "topics": topics,
+                    "stars": repo_data.get('stargazers_count'),
+                    "forks": repo_data.get('forks_count'),
+                    "growth": repo_summary.get('growth'),
+                    "tags": repo_data.get('tags', {}),
+                    "_analysis_info": analysis_info
+                }
             }
         except Exception as e:
             print(f"  - Failed processing {repo_summary.get('owner')}/{repo_summary.get('repo')}: {e}")
@@ -107,149 +203,141 @@ def main():
             futures = [executor.submit(process_trending_repo, repo) for repo in trending_repos]
             for future in as_completed(futures):
                 result = future.result()
-                if result:
-                    results.append(result)
+                if result and result.get("summary"):
+                    results.append(result["summary"])
         return results
 
-    # --- Part 1: Process Trending Repos ---
-    all_projects_info = []
-    trending_results = {} # map full_name -> repo_info
+    # Execute Part 1
+    all_projects_info = [] # Not strictly needed if we rebuild in Part 2, but useful for debug
+    
     for time_range in ["daily", "weekly", "monthly"]:
         processed_repos = process_trending_list(time_range)
-        for repo in processed_repos:
-            full_name = f"{repo['owner']}/{repo['repo']}"
-            trending_results[full_name] = repo
-            if repo.get('_analysis_info'):
-                all_projects_info.append(repo['_analysis_info'])
+        # Note: processed_repos contains summaries. 
+        # The full data is in repo_data_cache and S3.
+        
         time_range_key = f"data/{time_range}/{today_str}.json"
         storage.upload_json(time_range_key, processed_repos)
 
-    # --- Part 2: Maintenance (Existing Projects) ---
-    print("Starting maintenance of all existing projects...")
+    # --- Part 2 & 3: Unified Maintenance & Index Generation ---
+    print("Starting Unified Maintenance & Index Generation...")
     
-    def process_existing_file(file_key):
+    index_projects = []
+    
+    def process_file_unified(file_key):
         try:
             # Extract owner/repo from key: data/projects/owner/repo.json
             parts = file_key.split('/')
-            # Handle possible variations if prefix changes, but assuming data/projects/owner/repo.json
             if len(parts) < 4: return None
             owner = parts[-2]
             repo_name = parts[-1].replace('.json', '')
             full_name = f"{owner}/{repo_name}"
             
-            if full_name in processed_full_names:
-                return None
+            repo_data = None
             
-            repo_data = storage.get_json(file_key)
+            # 1. Get Data (Cache or S3)
+            if full_name in repo_data_cache:
+                # print(f"  - Using cached data for {full_name}")
+                repo_data = repo_data_cache[full_name]
+            else:
+                # S3 Read
+                repo_data = storage.get_json(file_key)
+            
             if not repo_data: return None
             
-            history = repo_data.get('star_history', [])
+            data_changed = False
             
-            needs_update = False
-            needs_backfill = False
+            # 2. Category Sync (Markdown Overrides)
+            # Even if cached (processed in trending), we re-check? 
+            # Trending logic already called apply_category_sync, so if cached, it's done.
+            # Only need to call if NOT cached (loaded from S3) OR if we want to be double sure.
+            # apply_category_sync checks dict, fast.
+            if apply_category_sync(repo_data, markdown_categories):
+                data_changed = True
             
-            # Condition for backfill: empty or only 1 record
-            if not history or len(history) <= 1:
-                needs_backfill = True
-            
-            last_date = history[-1]['date'] if history else None
-            if last_date != today_str:
-                needs_update = True
+            # 3. Maintenance (Backfill / Update)
+            # Only need to do this if NOT in processed_full_names (Trending already updated it)
+            if full_name not in processed_full_names:
+                history = repo_data.get('star_history', [])
+                needs_update = False
+                needs_backfill = False
                 
-            if needs_backfill or needs_update:
-                print(f"Maintenance: {full_name} (Backfill={needs_backfill}, Update={needs_update})")
+                if not history or len(history) <= 1:
+                    needs_backfill = True
                 
-                data_changed = False
-
-                if needs_backfill:
-                    print(f"  - Fetching full history from OSSInsight for {full_name}...")
-                    full_history = oss_client.fetch_star_history(owner, repo_name)
-                    if full_history:
-                        repo_data['star_history'] = full_history
-                        repo_data['stargazers_count'] = full_history[-1]['count']
-                        repo_data['updated_at'] = datetime.datetime.now().isoformat()
-                        data_changed = True
-                        # If backfill successful, we likely have the latest data (up to today or yesterday)
-                        # We can re-check if we still need a daily update (if OSS data is stale by 1 day)
-                        history = full_history
-                
-                # Re-evaluate update need
                 last_date = history[-1]['date'] if history else None
                 if last_date != today_str:
-                    print(f"  - Fetching current stars from GitHub for {full_name}...")
-                    current_stars = gh_client.get_repo_stars(owner, repo_name)
-                    if current_stars is not None:
-                        history.append({
-                            "date": today_str,
-                            "count": current_stars
-                        })
-                        repo_data['star_history'] = history
-                        repo_data['stargazers_count'] = current_stars
-                        repo_data['updated_at'] = datetime.datetime.now().isoformat()
-                        data_changed = True
+                    needs_update = True
                 
-                if data_changed:
-                    storage.upload_json(file_key, repo_data)
-            
-            return extract_project_info(repo_data)
-        except Exception as e:
-            print(f"Error maintaining {file_key}: {e}")
-            return None
+                if needs_backfill or needs_update:
+                    # print(f"Maintenance: {full_name} (Backfill={needs_backfill}, Update={needs_update})")
+                    
+                    if needs_backfill:
+                        # print(f"  - Fetching full history from OSSInsight for {full_name}...")
+                        full_history = oss_client.fetch_star_history(owner, repo_name)
+                        if full_history:
+                            repo_data['star_history'] = full_history
+                            repo_data['stargazers_count'] = full_history[-1]['count']
+                            repo_data['updated_at'] = datetime.datetime.now().isoformat()
+                            data_changed = True
+                            history = full_history
+                    
+                    # Re-evaluate update need
+                    last_date = history[-1]['date'] if history else None
+                    if last_date != today_str:
+                        # print(f"  - Fetching current stars from GitHub for {full_name}...")
+                        current_stars = gh_client.get_repo_stars(owner, repo_name)
+                        if current_stars is not None:
+                            history.append({
+                                "date": today_str,
+                                "count": current_stars
+                            })
+                            repo_data['star_history'] = history
+                            repo_data['stargazers_count'] = current_stars
+                            repo_data['updated_at'] = datetime.datetime.now().isoformat()
+                            data_changed = True
 
-    all_files = storage.list_files("data/projects/")
-    print(f"Found {len(all_files)} total projects in storage.")
-    
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = [executor.submit(process_existing_file, key) for key in all_files]
-        for future in as_completed(futures):
-            res = future.result()
-            if res:
-                all_projects_info.append(res)
+            # 4. Save to S3 (if changed)
+            # Note: If it was processed in Trending (Part 1), it was already saved.
+            # Unless apply_category_sync changed it here (unlikely if Part 1 did it).
+            # So checking data_changed is correct.
+            # But wait, if Part 1 saved it, data_changed is False here (since we loaded fresh data or cached data which was already saved).
+            # Unless we modify the cached object in place? 
+            # Yes, repo_data is a reference.
+            # If Part 1 saved it, data_changed is False.
+            # If Part 1 didn't process it, we loaded from S3.
+            if data_changed:
+                 # print(f"  - Saving updates for {full_name}")
+                 storage.upload_json(file_key, repo_data)
 
-    # --- Part 3: Update Index (Refactored) ---
-    print("Starting Index Update & Top Project Analysis...")
-    
-    index_projects = []
-    
-    def process_index_entry(file_key):
-        try:
-            repo_data = storage.get_json(file_key)
-            if not repo_data: return None
-            
-            owner = repo_data.get('owner')
-            repo = repo_data.get('repo')
-            if not owner or not repo: return None
-            
-            full_name = f"{owner}/{repo}"
-            
-            # Calculate 90d metrics
+            # 5. Generate Index Entry
             star_history = repo_data.get('star_history', [])
             delta_90d, growth_rate_90d = calculate_growth_metrics(star_history)
-            
             current_stars = repo_data.get('stargazers_count', 0)
             
-            # Optimized entry for index.json
             entry = {
                 "owner": owner,
-                "repo": repo,
-                "description": (repo_data.get('description') or "")[:250], # Truncate description
+                "repo": repo_name,
+                "description": (repo_data.get('description') or "")[:250],
                 "language": repo_data.get('language'),
                 "tags": repo_data.get('tags', {}),
-                "topics": (repo_data.get('topics') or [])[:10], # Limit topics to top 10
+                "topics": (repo_data.get('topics') or [])[:10],
                 "stars": current_stars,
                 "forks": repo_data.get('forks_count', 0),
                 "growth_90d": delta_90d,
                 "last_updated": repo_data.get('updated_at', today_str)
             }
             return entry
+            
         except Exception as e:
-            print(f"Error processing index for {file_key}: {e}")
+            print(f"Error processing {file_key}: {e}")
             return None
 
-    # Use ThreadPool to fetch and process all files
-    # Note: all_files was retrieved in Part 2
+    all_files = storage.list_files("data/projects/")
+    print(f"Found {len(all_files)} total projects in storage.")
+    
+    # Use ThreadPool for unified processing
     with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(process_index_entry, key) for key in all_files]
+        futures = [executor.submit(process_file_unified, key) for key in all_files]
         for future in as_completed(futures):
             res = future.result()
             if res:
@@ -260,7 +348,7 @@ def main():
     print(f"Uploading index.json with {len(index_projects)} projects...")
     storage.upload_json(index_key, index_projects)
 
-    # --- Part 4: Top Project Analysis (Refactored) ---
+    # --- Part 4: Top Project Analysis ---
     try:
         print("Generating Top Project Analysis (Leaderboard Structure)...")
         
@@ -324,7 +412,6 @@ def main():
                 # Assign Rank
                 ranked_projects = []
                 for idx, proj in enumerate(projects_list):
-                    # Optimization: Only include fields strictly needed by TopLeaderboard.tsx
                     r_proj = {
                         "rank": idx + 1,
                         "owner": proj['owner'],
