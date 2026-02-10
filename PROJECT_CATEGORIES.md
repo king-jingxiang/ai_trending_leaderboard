@@ -523,7 +523,6 @@ This file is auto-generated but can be manually edited to correct categories.
 ## Application Frameworks
 ### Agent Framework
 - 1Panel-dev/MaxKB
-- 666ghj/BettaFish
 - BAAI-Agents/Cradle
 - BCG-X-Official/agentkit
 - Farama-Foundation/PettingZoo
@@ -557,7 +556,6 @@ This file is auto-generated but can be manually edited to correct categories.
 - Yifan-Song793/RestGPT
 - agent0ai/agent-zero
 - agentscope-ai/agentscope
-- agentsmd/agents.md
 - agi-inc/agent-protocol
 - agiresearch/OpenAGI
 - agno-agi/agno
@@ -573,6 +571,7 @@ This file is auto-generated but can be manually edited to correct categories.
 - badlogic/pi-mono
 - block/goose
 - browserbase/stagehand
+- bytedance/deer-flow 
 - camel-ai/camel
 - casibase/casibase
 - cheshire-cat-ai/core
@@ -817,6 +816,7 @@ This file is auto-generated but can be manually edited to correct categories.
 - yamadashy/repomix
 
 ### Agent Skill
+- agentsmd/agents.md
 - ThePrimeagen/99
 - anthropics/skills
 - davila7/claude-code-templates
@@ -1037,6 +1037,8 @@ This file is auto-generated but can be manually edited to correct categories.
 
 ### Marketing & SEO
 - Nutlope/twitterbio
+- 666ghj/BettaFish
+
 
 ### Education & Learning
 - JushBJJ/Mr.-Ranedeer-AI-Tutor

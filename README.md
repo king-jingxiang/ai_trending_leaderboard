@@ -139,3 +139,7 @@ By analyzing high-growth projects over specific periods, we will:
 - Track user and media movements.
 - Predict future technical directions to help you stay ahead of the next generation of technology.
 
+### 4. Agent Skill for Technical Selection Support
+
+We will provide a dedicated Agent Skill. Users can describe their requirements in natural language, and the Skill will automatically analyze and recommend suitable technology stacks and open-source project combinations, providing personalized technical selection references.
+
