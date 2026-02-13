@@ -49,8 +49,7 @@ const MOCK_REPOS: Repo[] = [
 export async function fetchTrending(range: TimeRange): Promise<Repo[]> {
   try {
     console.log(`Fetching trending for range: ${range}`);
-    const today = new Date().toISOString().split('T')[0];
-    const response = await fetch(`${BASE_URL}/data/${range}/${today}.json`);
+    const response = await fetch(`${BASE_URL}/ai_trending_leaderboard/latest/${range}.json`);
     if (!response.ok) throw new Error("Failed to fetch");
     return await response.json();
   } catch (e) {
@@ -63,7 +62,7 @@ export async function fetchTopProjects(date?: string): Promise<TopProjectsRespon
   try {
     const targetDate = date || new Date().toISOString().split('T')[0];
     console.log(`Fetching top projects for date: ${targetDate}`);
-    const response = await fetch(`${BASE_URL}/data/top/top_projects_${targetDate}.json`);
+    const response = await fetch(`${BASE_URL}/ai_trending_leaderboard/latest/top_projects.json`);
     if (!response.ok) throw new Error("Failed to fetch top projects");
     return await response.json();
   } catch (e) {
@@ -75,7 +74,7 @@ export async function fetchTopProjects(date?: string): Promise<TopProjectsRespon
 
 export async function fetchRepoDetails(owner: string, repo: string): Promise<Repo | null> {
   try {
-    const response = await fetch(`${BASE_URL}/data/projects/${owner}/${repo}.json`);
+    const response = await fetch(`${BASE_URL}/ai_trending_leaderboard/latest/projects/${owner}/${repo}.json`);
     if (!response.ok) throw new Error("Failed to fetch");
     return await response.json();
   } catch (e) {
@@ -86,7 +85,7 @@ export async function fetchRepoDetails(owner: string, repo: string): Promise<Rep
 
 export async function fetchAllRepos(): Promise<Repo[]> {
   try {
-    const response = await fetch(`${BASE_URL}/data/index.json`);
+    const response = await fetch(`${BASE_URL}/ai_trending_leaderboard/latest/index.json`);
     if (!response.ok) throw new Error("Failed to fetch index");
     const data = await response.json();
     return data.map((item: any) => ({
